@@ -1,0 +1,19 @@
+Loading required package: XLConnectJars
+XLConnect 0.2-11 by Mirai Solutions GmbH [aut],
+  Martin Studer [cre],
+  The Apache Software Foundation [ctb, cph] (Apache POI, Apache Commons
+    Codec),
+  Stephen Colebourne [ctb, cph] (Joda-Time Java library)
+http://www.mirai-solutions.com ,
+http://miraisolutions.wordpress.com
+
+Attaching package: ‘XLConnect’
+
+The following objects are masked from ‘package:xlsx’:
+
+    createFreezePane, createSheet, createSplitPane, getCellStyle,
+    getSheets, loadWorkbook, removeSheet, saveWorkbook, setCellStyle,
+    setColumnWidth, setRowHeight
+
+
+Execution halted
