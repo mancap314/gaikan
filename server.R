@@ -6,6 +6,7 @@ library(gdata)
 #library(XLConnect)
 library(tseries)
 library(DBI)
+library(RMySQL)
 
 library(stringr)
 library(forecast)
@@ -16,7 +17,7 @@ library(xts)
 options(shiny.maxRequestSize=180*1024^2)
 options(encoding = 'UTF-8')
 options(java.parameters = "-Xms1g -Xmx1g")
-options(warn=-1)
+options(warn=1)
 #options(shiny.error=traceback)
 #options(warn=2, error=browser, shiny.error=browser)
 # con <- gzfile(description = "/home/rstudio/forest.rds")
@@ -63,32 +64,18 @@ shinyServer(function(input, output, session){
     dataset
   })
   
-  output$SaveData <-  renderUI({
+  
+  output$dataSaved <- renderText({
     input$saveData
-    closeAlert(session, "savingDataAlert")
     
     isolate({
       if(input$saveData != 0){
-        createAlert(session, "savingDataAlert", "savingDataAlert", title = "Datenspeicherung",
-                    content = "Daten werden gespeichert...", append = FALSE)
-        print("alert created")
-        dat <- dataset()
-        if(saveData(dat)){
-          closeAlert(session, "savingDataAlert")
-          createAlert(session, "savingDataAlert", "savingDataAlert", title = "Daten gespeichert",
-                      content = "Daten wurden erfolgreich gespeichert", append = FALSE)
+        dataset <- dataset()
+        saveData(dataset)
         }
-        else{
-          closeAlert(session, "savingDataAlert")
-          createAlert(session, "savingDataAlert", "savingDataAlert", title = "Daten nicht gespeichert",
-                      content = "Daten konnten nicht gespeichert werden", append = FALSE)
-        }
-        return(selectInput("ddata", "Bisher hochgeladene Daten", choices = getIntervals()))
-      }
     })
-    selectInput("ddata", "Bisher hochgeladene Daten", choices = getIntervals())
+    return("gespeichert")
   })
-  
   
   output$resAnfrage <- renderUI({
     input$pruefen
@@ -97,8 +84,8 @@ shinyServer(function(input, output, session){
     
     isolate({
       if(input$pruefen != 0){
-        
-        res <- mReservation(input$datres, input$zugnr, input$anbieter, input$land, input$plaetze, input$von, input$bis, input$klasse)
+        res <- resProba(input$datres, input$zugnr, input$anbieter, input$land, input$plaetze, input$von, input$bis, input$klasse)
+        #res <- mReservation(input$datres, input$zugnr, input$anbieter, input$land, input$plaetze, input$von, input$bis, input$klasse)
         totalPlaces <- res$totalPlaces
         totalPlaces <- paste0("Anzahl Plätze total: ", totalPlaces)
         reservedPlaces <- res$reservedPlaces
@@ -188,14 +175,14 @@ shinyServer(function(input, output, session){
         horizont <- as.numeric(input$horizont)
         einzel <- input$reisende
         if(input$reisende=="Einzel") einzel <- "ja"
-        data <- subset(data, Reisedatum>=datvon & Reisedatum<= datbis)
+        #data <- subset(data, Reisedatum>=datvon & Reisedatum<= datbis)
       
         if(auswertung=="Statistik"){
-          stat <- ausfallrate(data, forvar, forfactor, datvon, datbis, sorted, streckevon, streckebis, byPassenger=T)
+          stat <- ausfallrate(forvar, forfactor, datvon, datbis, sorted, streckevon, streckebis, einzel=einzel, byPassenger=T)
           plot <- graphStats(stat, "", forvar, forfactor, datvon, datbis)
         }
         if(auswertung=="Ausfallrate"){
-          plot <- prevision(data, trainnr, datvon, datbis, fromPlace="", toPlace="", to=horizont)
+          plot <- prevision(trainnr, datvon, datbis, fromPlace="", toPlace="", einzel=einzel, to=horizont)
         }
         
         if(auswertung=="Auslastung"){
@@ -221,7 +208,7 @@ shinyServer(function(input, output, session){
   
   
   output$ZugNr <- renderUI({
-    selectInput("zugnr", "Zug Nr.", choices=c(getTrainNumbers()))
+    selectInput("zugnr", "Zug Nr.", choices=c(getTrainNumbers(input$datres)))
   })
   
   output$ZugNrStat <- renderUI({
@@ -233,16 +220,16 @@ shinyServer(function(input, output, session){
   })
   
   observe({
-    if(!(is.null(data))) namen <- sort(names(data))
+    namen <- c("Reisedatum", "Reisewochentag", "Zug.Nr.", "Zugkategorie", "Einzel", "Reisestrecke", "Wagentyp", "Passagiere.2..Kl.", "Passagiere.1..Kl.", "Dossier.Status", "Verkaufsort", "Verkaufskanal", "Key.Account", "Last.second.Anbieter", "Land", "Business.Partner")
     #updateSelectInput(session, "ddata", "Bisher hochgeladene Daten", choices = getIntervals())
-    if(!(is.null(data))) updateSelectInput(session, "anbieter", "Anbieter", choices=c("Anderer...", getFactors(data, "Business.Partner")))
-    if(!(is.null(data))) updateSelectInput(session, "land", "Land", choices=getFactors(data, "Land"))
-    if(!(is.null(input$zugnr))) updateSelectInput(session, "von", "Von", choices=getStations(input$zugnr))
-    if(!(is.null(input$zugnr))) updateSelectInput(session, "bis", "Bis", choices=getStations(input$zugnr))
-    if(!(is.null(data) | is.null(input$forvar))) updateSelectInput(session, "forfactor", "Faktor", choices=getFactors(data, input$forvar))
-    if(!(is.null(data) | is.null(input$forvar))) updateSelectInput(session, "sorted", "Sortiert nach", choices=c(namen[!namen %in% c(input$forvar, "Reisedatum", "Dossier.Status")]))
-    if(!is.null(input$zugnrstat)) updateSelectInput(session, "streckevon", "Strecke von", choices=c("", getStations(input$zugnrstat)))
-    if(!(is.null(input$zugnrstat))) updateSelectInput(session, "streckebis", "Bis", choices=c("", getStations(input$zugnrstat)))
+    updateSelectInput(session, "anbieter", "Anbieter", choices=c("Anderer...", getFactors("Business.Partner")))
+    updateSelectInput(session, "land", "Land", choices=getFactors("Land"))
+    if(!(is.null(input$zugnr))) updateSelectInput(session, "von", "Von", choices=getStations(input$zugnr, "von"))
+    if(!(is.null(input$zugnr))) updateSelectInput(session, "bis", "Bis", choices=getStations(input$zugnr, "bis"))
+    if(!(is.null(input$forvar))) updateSelectInput(session, "forfactor", "Faktor", choices=getFactors(input$forvar))
+    if(!(is.null(input$forvar))) updateSelectInput(session, "sorted", "Sortiert nach", choices=c(namen[!namen %in% c(input$forvar, "Reisedatum", "Dossier.Status")]))
+    if(!is.null(input$zugnrstat)) updateSelectInput(session, "streckevon", "Strecke von", choices=c("", getStations(input$zugnrstat, "von")))
+    if(!(is.null(input$zugnrstat))) updateSelectInput(session, "streckebis", "Bis", choices=c("", getStations(input$zugnrstat, "bis")))
   
     updateSelectInput(session, "jahropt", "Jahr", choices=getYears())
     
@@ -259,7 +246,7 @@ shinyServer(function(input, output, session){
       updateTextInput(session, "klasse2gruppe", "Anzahl Plätze für Gruppenreisende", c(capacity$Klasse2Gruppe))
       updateTextInput(session, "klasse2kontingent", "Anzahl Plätze im Kontingent", c(capacity$Klasse2Kontingent))
     }
-    
+    updateSelectInput(session, "ddata", "Bisher hochgeladene Daten", choices = getIntervals())
     #updateSelectInput(session, "zugnropt", "Zug-Nr.", choices=c("", getTrainNumbers()))
     #updateSelectInput(session, "zugnraus", "Zug Nr. (Auslastung)", choices=c("all", getZugNr()))
     })

@@ -14,8 +14,8 @@ shinyUI(
             column(12, h6("Dazu laden Sie bitte einen aktuellen Datenstand hoch oder wählen Sie einen alten Datenstand aus, der für die weiteren Analysen verwendet werden soll"))),
         fluidRow(
           column(12,
-            #selectInput("ddata", "Bisher hochgeladene Daten", choices = getIntervals()),
-            uiOutput("SaveData"),
+            selectInput("ddata", "Bisher hochgeladene Daten", choices = getIntervals()),
+            #uiOutput("SaveData"),
             fileInput('file1', 'Import', accept=c('application/vnd.ms-excel',
                                                   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                                                   '.xls',
@@ -32,16 +32,13 @@ shinyUI(
        fluidRow(
          column(12, "Bitte überprüfen Sie die Daten auf Korrektheit")),
        fluidRow(
-         column(1, actionButton("saveData", "Speichern")),
-         column(3, bsAlert(anchorId="savingDataAlert"))
-         ),
-       
-       fluidRow(
-         column(12, bsAlert("savingDataAlert"))),
-       fluidRow(
+         column(1, actionButton("saveData", "Speichern"))),
+      fluidRow(
+        column(12, textOutput("dataSaved"))),
+      fluidRow(
         column(12, DT::dataTableOutput('contents')))
      )
-    ),
+),
     tabPanel("Wahrscheinlichkeiten",
      fluidPage(
        tags$head(
@@ -55,9 +52,9 @@ shinyUI(
               sidebarLayout(
                 sidebarPanel(
                   tags$b("Zug auswählen..."),
-                  uiOutput("ZugNr"),
                   #selectInput("zugnr", "Zug Nr.", choices=c("")),
                   dateInput("datres", "Datum", format = "dd.mm.yyyy", language="de"),
+                  uiOutput("ZugNr"),
                   tags$b("Reservierungsanfrage prüfen..."),
                   selectInput("anbieter", "Anbieter", choices=c("")),
                   #selectInput("land", "Land", choices=c("")),

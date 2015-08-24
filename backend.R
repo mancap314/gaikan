@@ -1,5 +1,6 @@
 #data processing
 processData <- function(data){
+  print("data gets processed")
   #data <- data[,c("Reisedatum", "Reisewochentag", "Zug Nr.", "Zugkategorie", "Einzel", "Reisestrecke", "Wagentyp", "Passagiere 2. Kl.", "Passagiere 1. Kl.", "Dossier Status", "Verkaufsort", "Verkaufskanal", "Key Account", "Last second Anbieter", "Land", "Business Partner")]
   data <- data[,c("Reisedatum", "Reisewochentag", "Zug.Nr.", "Zugkategorie", "Einzel", "Reisestrecke", "Wagentyp", "Passagiere.2..Kl.", "Passagiere.1..Kl.", "Dossier.Status", "Verkaufsort", "Verkaufskanal", "Key.Account", "Last.second.Anbieter", "Land", "Business.Partner")]
   names(data) <- c("Reisedatum", "Reisewochentag", "Zug.Nr.", "Zugkategorie", "Einzel", "Reisestrecke", "Wagentyp", "Passagiere.2..Kl.", "Passagiere.1..Kl.", "Dossier.Status", "Verkaufsort", "Verkaufskanal", "Key.Account", "Last.second.Anbieter", "Land", "Business.Partner")
@@ -33,7 +34,19 @@ processData <- function(data){
   #suppress entries with no Reiseziel
   data <- subset(data, !is.na(Reiseziel))
   data <- subset(data, !is.na(Reisedatum))
-  data <- subset(data, Dossier.Status %in% c("Erfolgreich abgeschlossen", "Storniert"))
+  
+  print("unique(data$Dossier.Status)")
+  print(unique(data$Dossier.Status))
+  tochange <- data$Dossier.Status %in% c("Fahrplanänderung", "Bestellt", "Erfolgreich abgeschlossen", "Offen")
+  print("tochange")
+  print(tochange[1:30])
+  data$Dossier.Status <- as.character(data$Dossier.Status)
+  data$Dossier.Status[tochange] <- "Belegt"
+  print("data$Dossier.Status")
+  print(data$Dossier.Status[1:30])
+  
+  data <- subset(data, Dossier.Status %in% c("Belegt", "Storniert"))
+  data$Dossier.Status <- factor(data$Dossier.Status, levels=c("Belegt", "Storniert"))
   data$Reisedatum <- as.Date(as.numeric(as.character(data$Reisedatum)), origin = "1899-12-30")
   data
 }
@@ -44,7 +57,7 @@ formatData <- function(dataset){
   dataset$Einzel <- as.factor(dataset$Einzel)
   dataset$Wagentyp <- as.factor(dataset$Wagentyp)
   dataset$Land <- as.factor(dataset$Land)
-  dataset$Verkaufsort <- as.factor(dataset$Verkaufsort)
+  dataset$Verkaufsort<- as.factor(dataset$Verkaufsort)
   dataset$Verkaufskanal <- as.factor(dataset$Verkaufskanal)
   dataset$Key.Account <- as.factor(dataset$Key.Account)
   dataset$Last.second.Anbieter <- as.factor(dataset$Last.second.Anbieter)
@@ -83,18 +96,18 @@ asfactor <- function(x){
 
 #analyse with bigrf
 #runs only with Unix
-mForest <- function(data){
-  library(bigrf)
-  dat <- subset(data, Einzel=="nein")
-  forest <- bigrfc(dat, as.factor(dat$Dossier.Status), ntree=30, varselect=c(1:8, 10:17))
-}
+# mForest <- function(data){
+#   library(bigrf)
+#   dat <- subset(data, Einzel=="nein")
+#   forest <- bigrfc(dat, as.factor(dat$Dossier.Status), ntree=30, varselect=c(1:8, 10:17))
+# }
 #make statistics
 
 #to test
 #dat=data ; param="Land" ; factor="Deutschland" ; fromDate="2014-01-01" ; toDate="2014-01-30" ; byvar="Reisewochentag"
 #args: dat=data, param="Land", factor="Deutschland", fromDate="2014-01-01", toDate="2014-01-30", byvar="Reisewochentag"
 #t?gliche fallrate: ausfallts <- ausfallrate(data, "Reisedatum", fromDate="2014-01-01", toDate="2014-01-30")
-ausfallrate <- function(dat, param, factor="", fromDate, toDate, byvar="", from="", to="",class="alle", byPassenger=T){ #OK
+ausfallrate <- function(param, factor="", fromDate, toDate, byvar="", from="", to="",class="alle", einzel="Alle", byPassenger=T){ #OK
   #data: from which the statistics are made
   #param: parameter for the statistics
   #factor: wished factor of param
@@ -104,50 +117,53 @@ ausfallrate <- function(dat, param, factor="", fromDate, toDate, byvar="", from=
   #byvar: variable to sort by
   #byPassenger: rate by passenger (vs. by reservation)
   
-  if(factor!="") {
-    sel <- which(dat[[param]]==factor)
-    dat <- dat[sel,] #ok
-  }
-  
-  statuscode <- rep(0, nrow(dat))
-  sel <- which(dat$Dossier.Status=="Storniert")
-  statuscode[sel] <- 1
-  dat$statuscode <- statuscode
-  dat$zahl <- rep(1, nrow(dat))
-  
-  if(byPassenger){
-    dat$statuscode <- dat$statuscode*(dat$Passagiere.2..Kl.+dat$Passagiere.1..Kl.)
-    dat$zahl <- dat$zahl*(dat$Passagiere.2..Kl.+dat$Passagiere.1..Kl.)
-  }
-  
   fromDate <- as.POSIXct(fromDate, format="%Y-%m-%d")
   fromDate <- strptime(fromDate,"%Y-%m-%d")
   toDate <- as.POSIXct(toDate, format="%Y-%m-%d")
   toDate <- strptime(toDate,"%Y-%m-%d")
-  dat$Reisedatum <- as.POSIXct(dat$Reisedatum)
-  dat$Reisedatum <-  strptime(dat$Reisedatum,"%Y-%m-%d")
-  if(!is.na(fromDate)) dat <- subset(dat, Reisedatum>=fromDate)
-  if(!is.na(toDate))dat <- subset(dat, Reisedatum<=toDate)
-  if(from!="") dat <- subset(dat, Reisestart==from)
-  if(to!="") dat <- subset(dat, Reiseziel==to)
+  data <- getData(datvon=fromDate, datbis=toDate, trainnr="", fromPlace=from, toPlace=to, einzel=einzel)
+  
+  if(factor!="") {
+    sel <- which(data[[param]]==factor)
+    data <- data[sel,] #ok
+  }
+  
+  statuscode <- rep(0, nrow(data))
+  sel <- which(data$Dossier.Status=="Storniert")
+  statuscode[sel] <- 1
+  data$statuscode <- statuscode
+  data$zahl <- rep(1, nrow(data))
+  
+  if(byPassenger){
+    data$statuscode <- data$statuscode*(data$Passagiere.2..Kl.+data$Passagiere.1..Kl.)
+    data$zahl <- data$zahl*(data$Passagiere.2..Kl.+data$Passagiere.1..Kl.)
+  }
+  
+  data$Reisedatum <- as.POSIXct(data$Reisedatum)
+  data$Reisedatum <-  strptime(data$Reisedatum,"%Y-%m-%d")
+#   if(!is.na(fromDate)) data <- subset(data, Reisedatum>=fromDate)
+#   if(!is.na(toDate))data <- subset(data, Reisedatum<=toDate)
+#   if(from!="") data <- subset(data, Reisestart==from)
+#   if(to!="") data <- subset(data, Reiseziel==to)
   
   vars <- c()
   if(factor=="") vars <- c(vars, param)
   if(byvar!="") vars <- c(vars, byvar)
-  dat <- dat[,names(dat) %in% c(vars, "statuscode", "zahl")]
+  data <- data[,names(data) %in% c(vars, "statuscode", "zahl")]
   if(length(vars)>1){
-    byvars <- as.list(dat[,names(dat) %in% c(vars)])
-    dat0 <- aggregate(dat$statuscode, by=byvars, FUN=sum)
-    dat1 <- aggregate(dat$zahl, by=byvars, FUN=sum)
+    byvars <- as.list(data[,names(data) %in% c(vars)])
+    dat0 <- aggregate(data$statuscode, by=byvars, FUN=sum)
+    dat1 <- aggregate(data$zahl, by=byvars, FUN=sum)
   }
   if(length(vars)==1){
-    dat[[vars]] <- as.character(dat[[vars]])
-    dat0 <- aggregate(dat[["statuscode"]]~dat[[vars]], FUN=sum)
-    dat1 <- aggregate(dat[["zahl"]]~dat[[vars]], FUN=sum)
+    data[[vars]] <- as.character(data[[vars]])
+    dat0 <- aggregate(data[["statuscode"]]~data[[vars]], FUN=sum)
+    dat1 <- aggregate(data[["zahl"]]~data[[vars]], FUN=sum)
     names(dat0) <- names(dat1) <- c(vars, "x")
   }    
   dat0$Ausfallrate <- round(dat0$x/dat1$x*100, 2)  
-  dat <- dat0[,names(dat0) %in% c(vars, "Ausfallrate")]
+  data <- dat0[,names(dat0) %in% c(vars, "Ausfallrate")]
+  data
 }
 
 #stat=st; title=""; param="Land"; factor="Deutschland"; from="2014-01-01"; to="2014-01-01"
@@ -171,6 +187,7 @@ graphStats <- function(stat, title="", param="", factor="", from="", to=""){ #OK
   }
   print(paste("title:", title))
   m <- m + ggtitle(title) + theme(plot.title = element_text(lineheight=.8, face="bold"))
+  m <- m + theme(axis.text.x=element_text(angle = 90, vjust = 0.5))
   m
 }
 
@@ -180,14 +197,15 @@ graphStats <- function(stat, title="", param="", factor="", from="", to=""){ #OK
 reservations <- function(trainnb, day, klasse="2"){
   print(paste0("reservations, trainnb=", trainnb, ", day=", day, ", klasse=", klasse))
   #trainnb: train number
-  #day <- as.POSIXct(day, format="%Y-%m-%d")
-  day <- strptime(day,"%Y-%m-%d")
-  print(head(data$Reisedatum))
-  #data$Reisedatum <- as.POSIXct(data$Reisedatum,"%Y-%m-%d")
-  data$Reisedatum <-  strptime(data$Reisedatum,"%Y-%m-%d")
-  data$Zug.Nr. <- as.character(data$Zug.Nr.)
+  day <- strptime(as.POSIXct(day, zone="UTC"),"%Y-%m-%d")
+  data$Reisedatum <- strptime(as.POSIXct(data$Reisedatum, format="%Y-%m-%d"),"%Y-%m-%d")
+  # print((data$Reisedatum==strptime(as.POSIXct("2014-01-01", format="%Y-%m-%d"), "%Y-%m-%d")))
+  # data$Zug.Nr. <- as.character(data$Zug.Nr.)
   data$Dossier.Status <- as.character(data$Dossier.Status)
-  dat <- subset(data, Reisedatum==day & Zug.Nr.==trainnb & (Dossier.Status=="Erfolgreich abgeschlossen" | Dossier.Status=="40 Erfolgreich abgeschlossen"))
+  print(paste("reservations: day=", day))
+  print(paste("reservations, nrow(data)=", nrow(data)))
+  dat <- subset(data, Reisedatum==day & Zug.Nr.==trainnb & Dossier.Status=="Belegt")
+  print(paste("debug: nrow=", nrow(dat)))
   if(nrow(dat)==0) return("")
   #TODO: Ausfallwahrscheinlichkeit hinf?gen
   classvar <- paste0("Passagiere.",klasse,"..Kl.")
@@ -199,25 +217,22 @@ reservations <- function(trainnb, day, klasse="2"){
   return(dat)
 }
 
-getFactors <- function(data, var){
-  sort(c(levels(as.factor(data[[var]]))))
-}
-
 #time prevision
 #dataset=dat ; fromDate="2014-01-01" ; toDate="2014-05-30" ; to=3 ; freq="month" ; byPassenger=T
 #vars: dataset=data, fromDate="2014-01-01", toDate="2014-05-30", to=3, freq="month", byPassenger=T
-prevision <- function(dataset, trainnr, fromDate, toDate, fromPlace="", toPlace="", to, var="", factor="", class="alle", freq="month", byPassenger=T){
+prevision <- function(trainnr, fromDate, toDate, fromPlace="", toPlace="", to, var="", factor="", class="alle", einzel="alle", freq="month", byPassenger=T){
 
   fromDate <- as.POSIXct(fromDate, format="%Y-%m-%d")
   fromDate <- strptime(fromDate,"%Y-%m-%d")
   toDate <- as.POSIXct(toDate, format="%Y-%m-%d")
   toDate <- strptime(toDate,"%Y-%m-%d")
+  print(paste("prevision, trainnr=", trainnr))
+  dataset <- getData(datvon=fromDate, datbis=toDate, trainnr=trainnr, fromPlace=fromPlace, toPlace=toPlace, einzel=einzel)
   dataset$Reisedatum <- strptime(dataset$Reisedatum,"%Y-%m-%d")
-  
-  dataset <- subset(dataset, Reisedatum>=fromDate & Reisedatum<=toDate)
-  if(trainnr!="Alle") dataset <- subset(dataset, Zug.Nr.==trainnr)
-  if(fromPlace!="") dataset <- subset(dataset, Reisestart==fromPlace)
-  if(toPlace!="") dataset <- subset(dataset, Reiseziel==toPlace)
+#   dataset <- subset(dataset, Reisedatum>=fromDate & Reisedatum<=toDate)
+#   if(trainnr!="Alle") dataset <- subset(dataset, Zug.Nr.==trainnr)
+#   if(fromPlace!="") dataset <- subset(dataset, Reisestart==fromPlace)
+#   if(toPlace!="") dataset <- subset(dataset, Reiseziel==toPlace)
   if(!byPassenger) weights <- count(dataset, c("Reisedatum"))
   else{
     dataset$passagiere <- dataset$Passagiere.1..Kl.+dataset$Passagiere.2..Kl.
@@ -225,7 +240,7 @@ prevision <- function(dataset, trainnr, fromDate, toDate, fromPlace="", toPlace=
     #weights <- aggregate(dataset$passagiere, by=list(Reisedatum=dataset$Reisedatum), FUN=sum)
     weights <- aggregate(passagiere~Reisedatum, FUN=sum, data=dataset)
   }
-  ar <- ausfallrate(dataset, "Reisedatum", fromDate=fromDate, toDate=toDate)
+  ar <- ausfallrate("Reisedatum", fromDate=fromDate, toDate=toDate)
   ar <- join(ar, weights, by=c("Reisedatum"))
   names(ar) <- c("datum", "ausfallrate", "gewichtung")
   ar$datum <- as.POSIXct(ar$datum, format="%Y-%m-%d")
@@ -261,13 +276,15 @@ prevision <- function(dataset, trainnr, fromDate, toDate, fromPlace="", toPlace=
 
 #dataset <- data; fromDate <- "2014-01-01"; toDate <- "2014-06-01"; trainnr <-"961"; einzel <- "all"; class <- "alle"; kontingent=F; to <- 3
 #auslastung(dat, "2014-01-01", "2014-06-01", "961")
-auslastung <- function(fromDate, toDate, trainnr, kontingent=F, einzel="all", class="alle", freq="month", byPassenger=T, to=3){
+auslastung <- function(fromDate, toDate, trainnr, kontingent=F, einzel="Alle", class="alle", freq="month", byPassenger=T, to=3){
   library(forecast)
   library(xts)
   fromDate <- as.POSIXct(fromDate, format="%Y-%m-%d")
   fromDate <- strptime(fromDate,"%Y-%m-%d")
   toDate <- as.POSIXct(toDate, format="%Y-%m-%d")
   toDate <- strptime(toDate,"%Y-%m-%d")
+  data <- getData(datvon=fromDate, datbis=toDate, trainnr=trainnr, fromPlace=NA, toPlace=NA, einzel=einzel)
+  
   data$Reisedatum <- as.POSIXct(data$Reisedatum, format="%Y-%m-%d")
   #dataset$jahr <- format(dataset$Reisedatum, "%Y")
   data$Reisedatum <- strptime(data$Reisedatum,"%Y-%m-%d")
@@ -275,10 +292,10 @@ auslastung <- function(fromDate, toDate, trainnr, kontingent=F, einzel="all", cl
 #   print(paste0("einzel=",einzel))
 #   print(paste0("trainnr=",trainnr))
   
-  data <- subset(data, Dossier.Status=="Erfolgreich abgeschlossen")
-  data <- subset(data, Reisedatum>=fromDate & Reisedatum<=toDate)
-  if(einzel!="Alle") data <- subset(data, Einzel==einzel)
-  if(trainnr!="Alle") data <- subset(data, Zug.Nr.==trainnr)
+  data <- subset(data, Dossier.Status=="Belegt")
+  # data <- subset(data, Reisedatum>=fromDate & Reisedatum<=toDate)
+  # if(einzel!="Alle") data <- subset(data, Einzel==einzel)
+  # if(trainnr!="Alle") data <- subset(data, Zug.Nr.==trainnr)
   
   #if(!byPassenger) weights <- count(dataset, c("Reisedatum"))
 
@@ -326,70 +343,78 @@ auslastung <- function(fromDate, toDate, trainnr, kontingent=F, einzel="all", cl
 #data=dat ; forest=forest ; date="2014-01-01" ; trainno="952" ; anbieter="Ameropa-Reisen GmbH, Bad Homburg" ; places="2" ; from="Chur" ; to="Tirano" ; class="2"
 
 #args: data=data, forest=forest, date="2014-01-01", trainno="952", anbieter="DB- Fernverkehr - Deutschland, P. TBF 12, Frankfur", places=2, from="Chur", to="Tirano", class="2"
-ausfallWK <- function(date, trainno, anbieter, land="", places, from, to, class){
-  #data: current data frame
-  #date: date of the trip
-  #trainno: number of the train
-  #places: number of places
-  #from: starting place of the trip
-  #to: end place of the trip
-  #class: class of the places to reserve (first/second)
-  
-  library(bigrf)
-  library(doMC)
-  registerDoMC(cores=4)
-  
-  places <- as.numeric(places)
-  date <- as.POSIXct(date, format="%Y-%m-%d")
-  #take the more frequent value for each variable
-  land <- modeland(data, anbieter)
-  #land <- "China"
-  data <- subset(data, Einzel=="nein")
-  modes <-apply(data, 2, mode)
-  #make dataframe
-  df <- data.frame(matrix(modes, nrow=1))
-  colnames(df) <- names(modes)
-  df$Dossier.Status <- factor(df$Dossier.Status, levels=levels(data$Dossier.Status))
-  #replace values
-  df$Reisedatum <- date
-  df$Reisewochentag <- weekday(as.character(date))
-  df$Einzel <- "nein"
-  if(class=="1"){
-    df$Passagiere.1..Kl. <- places
-    df$Passagiere.2..Kl. <- 0
-  }
-  if(class=="2"){
-    df$Passagiere.1..Kl. <- 0
-    df$Passagiere.2..Kl. <- places
-  }
-  df$Reisestart <- from
-  df$Reiseziel <- to
-  df$Business.Partner <- anbieter
-  df$Zug.Nr. <- trainno
-  df$Land <- land
-#   data <- data[,c("Reisedatum", "Reisewochentag", "Zug.Nr.", "Zugkategorie", "Einzel", "Wagentyp", "Passagiere.2..Kl.", "Passagiere.1..Kl.", "Dossier.Status", "Verkaufsort", "Verkaufskanal", "Key.Account", "Last.second.Anbieter", "Land", "Business.Partner")]
-#   df <- df[,c("Reisedatum", "Reisewochentag", "Zug.Nr.", "Zugkategorie", "Einzel", "Wagentyp", "Passagiere.2..Kl.", "Passagiere.1..Kl.", "Dossier.Status", "Verkaufsort", "Verkaufskanal", "Key.Account", "Last.second.Anbieter", "Land", "Business.Partner")]
-  df <- formatData(df)
-  #data <- rbind(data, df)
-  #probability
-  df <- rbind(df, data)
-  prediction <- predict(forest0, df, as.factor(df$Dossier.Status))
-#   prediction <- cprob(prediction)
-#   print("prediction")
-#   print(head(prediction))
-#   print(mean(prediction))
-#   prediction <- prediction[length(prediction)]
-  
-  prediction <- cprob(prediction)[1, 2]
-  
+# ausfallWK <- function(date, trainno, anbieter, land="", places, from, to, class){
+#   #data: current data frame
+#   #date: date of the trip
+#   #trainno: number of the train
+#   #places: number of places
+#   #from: starting place of the trip
+#   #to: end place of the trip
+#   #class: class of the places to reserve (first/second)
+#   
+#   library(bigrf)
+#   library(doMC)
+#   registerDoMC(cores=4)
+#   
+#   places <- as.numeric(places)
+#   date <- as.POSIXct(date, format="%Y-%m-%d")
+#   #take the more frequent value for each variable
+#   land <- modeland(data, anbieter)
+#   #land <- "China"
+#   data <- subset(data, Einzel=="nein")
+#   #modes <-apply(data, 2, mode)
+#   modes <- lapply(data[1:17], mode)
+#   #make dataframe
+#   df <- data.frame(matrix(modes, nrow=1))
+#   colnames(df) <- names(modes)
+#   df$Dossier.Status <- factor(df$Dossier.Status, levels=levels(data$Dossier.Status))
+#   #replace values
+#   df$Reisedatum <- date
+#   df$Reisewochentag <- weekday(as.character(date))
+#   df$Einzel <- "nein"
+#   if(class=="1"){
+#     df$Passagiere.1..Kl. <- places
+#     df$Passagiere.2..Kl. <- 0
+#   }
+#   if(class=="2"){
+#     df$Passagiere.1..Kl. <- 0
+#     df$Passagiere.2..Kl. <- places
+#   }
+#   df$Reisestart <- from
+#   df$Reiseziel <- to
+#   df$Business.Partner <- anbieter
+#   df$Zug.Nr. <- trainno
+#   df$Land <- land
+# #   data <- data[,c("Reisedatum", "Reisewochentag", "Zug.Nr.", "Zugkategorie", "Einzel", "Wagentyp", "Passagiere.2..Kl.", "Passagiere.1..Kl.", "Dossier.Status", "Verkaufsort", "Verkaufskanal", "Key.Account", "Last.second.Anbieter", "Land", "Business.Partner")]
+# #   df <- df[,c("Reisedatum", "Reisewochentag", "Zug.Nr.", "Zugkategorie", "Einzel", "Wagentyp", "Passagiere.2..Kl.", "Passagiere.1..Kl.", "Dossier.Status", "Verkaufsort", "Verkaufskanal", "Key.Account", "Last.second.Anbieter", "Land", "Business.Partner")]
+#   df <- formatData(df)
+#   #data <- rbind(data, df)
+#   #probability
+#   print(dim(df))
+#   print(dim(data))
+#   df <- rbind(df, data)
+#   print(paste("debug, nrow(df) =", nrow(df)))
+#   forest0 <- bigrfc(df, as.factor(df$Dossier.Status), ntree=30L, varselect=as.integer(c(1, 2, 3, 7, 8, 16, 17)), cachepath=NULL)
+#   sessionInfo()
 #   prediction <- predict(forest0, df, as.factor(df$Dossier.Status))
-#   prediction <- cprob(prediction)
-#   prediction <- prediction[1]
-  #p <- prediction[nrow(data)]
-  #p <- prediction[nrow(prediction)]
-  
-  return(prediction)
-}
+#   
+#   print(paste("AusfallWK, nrow(prediction)=", nrow(prediction)))
+# #   prediction <- cprob(prediction)
+# #   print("prediction")
+# #   print(head(prediction))
+# #   print(mean(prediction))
+# #   prediction <- prediction[length(prediction)]
+#   
+#   prediction <- cprob(prediction)[1, 2]
+#   
+# #   prediction <- predict(forest0, df, as.factor(df$Dossier.Status))
+# #   prediction <- cprob(prediction)
+# #   prediction <- prediction[1]
+#   #p <- prediction[nrow(data)]
+#   #p <- prediction[nrow(prediction)]
+#   
+#   return(prediction)
+# }
 
 #probability of success of a reservation request
 # prediction <- ausfallWK(data=data, forest=forest, date="2014-01-01", trainno="955", anbieter="DB- Fernverkehr - Deutschland, P. TBF 12, Frankfur", land="Deutschland", places="2", from="Chur", to="Tirano", class="2")
@@ -407,8 +432,11 @@ successWK <- function(prediction, date, trainno, places, class, poss=270, rdat=F
   p <- 0
   #number of reservation
   resnb <- reservations(trainno, date, class)
+  print("head(resnb):")
+  print(head(resnb))
   if(resnb=="") resnb <- 0
-  else resnb <- sum(resnb[,2]) 
+  else resnb <- sum(resnb[,2])
+  print(paste0("resnb=", resnb))
   dispo <- poss-resnb
   print(paste0("poss=", poss, ", dispo=", dispo))
   if(places<=dispo) p <- 100
@@ -416,14 +444,16 @@ successWK <- function(prediction, date, trainno, places, class, poss=270, rdat=F
     cl <- 2-as.numeric(class) #0 for 2nd class, 1 for 1st class
     date <- as.POSIXct(date, format="%Y-%m-%d")
     date <- strptime(date,"%Y-%m-%d")
-    data <- mPredictions(dat)
+    data <- mPredictions(data)
     
     data$pl <- cl*data$Passagiere.1..Kl.+(1-cl)*data$Passagiere.2..Kl.
     data$Reisedatum <- as.POSIXct(data$Reisedatum)
     data$Reisedatum <- strptime(data$Reisedatum,"%Y-%m-%d")
     
     dat <- subset(data, Zug.Nr.==trainno & Reisedatum==date & pl>0)
-    dat <- dat[order(data$predictions, decreasing=T),]
+    print(paste("debug, nrow(dat) =", nrow(dat)))
+    #dat <- dat[order(dat$predictions, decreasing=T),]
+    dat <- dat[order(as.vector(dat$predictions), decreasing=T),]
     dat$cumpl <- cumsum(dat$pl)
     mis <- resnb+places-poss #missing places
     ind <- min(which(dat$cumpl>=mis))
@@ -442,37 +472,37 @@ successWK <- function(prediction, date, trainno, places, class, poss=270, rdat=F
   return(res)
 }
 
-mPredictions <- function(df){
-  library(bigrf)
-  #library(plyr)
-  #forest <- unserialize(connection=gzfile("forest.rds", "r"))
-  #forest <- forest0
-  data$idrow <- 1:nrow(data)
-  data$predictions <- predictions
-  sdata <- subset(data, Einzel=="nein")
-  #predictions <- predict(forest, sdata, as.factor(sdata$Dossier.Status))
-  #predictions <- cprob(predictions)
-  #sdata$predictions <- predictions
-  sdata <- sdata[,c("idrow", "predictions")]
-  p <- nrow(subset(data, Einzel=="ja", Dossier.Status=="Erfolgreich abgeschlossen"))/nrow(subset(data, Einzel=="ja"))
-  p <- paste0(p, "%")
-  #print(paste0("nrow(data)=", nrow(data), ", nrow(sdata)=", nrow(sdata)))
-  if(nrow(sdata)!=nrow(data)){
-    sdata1 <- data.frame(idrow=setdiff(1:nrow(data), sdata$idrow), predictions=p)
-    sdata <- rbind(sdata, sdata1)
-  }
-  data <- merge(data, sdata, by="idrow")
-  data
-}
+# mPredictions <- function(df){
+#   library(bigrf)
+#   #library(plyr)
+#   #forest <- unserialize(connection=gzfile("forest.rds", "r"))
+#   #forest <- forest0
+#   data$idrow <- 1:nrow(data)
+#   data$predictions <- predictions
+#   sdata <- subset(data, Einzel=="nein")
+#   #predictions <- predict(forest, sdata, as.factor(sdata$Dossier.Status))
+#   #predictions <- cprob(predictions)
+#   #sdata$predictions <- predictions
+#   sdata <- sdata[,c("idrow", "predictions")]
+#   p <- nrow(subset(data, Einzel=="ja", Dossier.Status=="Belegt"))/nrow(subset(data, Einzel=="ja"))
+#   p <- paste0(p, "%")
+#   #print(paste0("nrow(data)=", nrow(data), ", nrow(sdata)=", nrow(sdata)))
+#   if(nrow(sdata)!=nrow(data)){
+#     sdata1 <- data.frame(idrow=setdiff(1:nrow(data), sdata$idrow), predictions=p)
+#     sdata <- rbind(sdata, sdata1)
+#   }
+#   data <- merge(data, sdata, by="idrow")
+#   data
+# }
 
 #anbieter="SBB Swiss Federal Railways, 3000 Bern 65 SBB"
 #which land for an anbieter?
 modeland <- function(data, anbieter){ #OK
-  dat <- subset(data, Business.Partner==anbieter)
+  print(dim(data))
+  dat <- subset(data, data$Business.Partner==anbieter)
   if(nrow(dat)==0) dat <- data
-  mod <- apply(dat, 2, mode)
-  land <- as.character(mod["Land"])
-  print(paste0("land: ", land))
+  land <- mode(dat$Land)
+  land <- as.character(land)
   land
 }
 
@@ -489,12 +519,13 @@ weekday <- function(date){ #OK
 #probability of cancelling from prediction vote
 cprob <- function(pred){
   pred <- pred@testvotes/rowSums(pred@testvotes)
+  #pred <- round((1-pred)*100, 2)
   pred <- round(pred*100, 2)
   print(head(pred))
   pred
 }
 
-mode <- function(x) names(table(x))[ which.max(table(x)) ]
+mode <- function(x){names(table(x))[which.max(table(x))]}
 
 # getFactors <- function(data, var){
 #   return(sort(as.character(unique(data[[var]]))))
@@ -511,7 +542,8 @@ mReservation <- function(datres, zugnr, anbieter, land, plaetze, von, bis, klass
 
 tableReservations <- function(predictions, date, trainno, places, class){
   #data: current data set
-  #predictions: predictions for data 
+  #predictions: predictions for data
+  print(paste0("tableReservations, nrow(data)=", nrow(data), ", nrow(predictions)=", nrow(predictions)))
   places <- as.numeric(places)
   #number of reservation
   resnb <- reservations(trainno, date, class)
@@ -522,12 +554,14 @@ tableReservations <- function(predictions, date, trainno, places, class){
   cl <- 2-as.numeric(class) #0 for 2nd class, 1 for 1st class
   date <- as.POSIXct(date, format="%Y-%m-%d")
   date <- strptime(date,"%Y-%m-%d")
-  data$predictions <- predictions
+  # data$predictions <- predictions[,2]
   
   data$pl <- cl*data$Passagiere.1..Kl.+(1-cl)*data$Passagiere.2..Kl.
   data$Reisedatum <- as.POSIXct(data$Reisedatum)
   data$Reisedatum <- strptime(data$Reisedatum,"%Y-%m-%d")
-  data <- subset(data, Zug.Nr.==trainno & Reisedatum==date & pl>0 & Dossier.Status=="Erfolgreich abgeschlossen")
+  data <- subset(data, Zug.Nr.==trainno & Reisedatum==date & pl>0 & Dossier.Status=="Belegt")
+  print(paste("tableReservations, nrow(data)=", nrow(data)))
+  data$predictions <- predictions
   data <- data[order(data$predictions, decreasing=T),]
   data <- data[,c("Business.Partner", "pl", "predictions")]
   names(data) <- c("Anbieter", "Plätze", "Ausfallrisiko")
@@ -587,4 +621,117 @@ getPlacesAgg <- function(agg, einzel, klasse){
   print("agg")
   print(agg)
   agg
+}
+
+#date="2014-01-01", trainno="952", anbieter="DB- Fernverkehr - Deutschland, P. TBF 12, Frankfur", places=2, from="Chur", to="Tirano", class="2"
+#compute probabilities for a reservation
+resProba <- function(date, trainno, anbieter, land="", places, from, to, class){
+  #first create an entry for the demanded reservation: df
+#   library(bigrf)
+#   library(doMC)
+#   registerDoMC(cores=4)
+  library(randomForest)
+  
+  tPlaces <- reservations(trainno, date, class)
+  
+  places <- as.numeric(places)
+  date <- as.POSIXct(date, format="%Y-%m-%d")
+  data$Reisedatum <- as.POSIXct(data$Reisedatum, format="%Y-%m-%d")
+  #take the more frequent value for each variable
+  land <- modeland(data, anbieter)
+  data <- subset(data, Einzel=="nein")
+  df <-apply(data[,1:17], 2, mode)
+  #make dataframe
+  df <- data.frame(matrix(df, nrow=1))
+  colnames(df) <- names(data)
+  #df$Dossier.Status <- factor(df$Dossier.Status, levels=levels(data$Dossier.Status))
+  #replace values
+  df$Reisedatum <- date
+  df$Reisewochentag <- weekday(as.character(date))
+  df$Einzel <- "nein"
+  if(class=="1"){
+    df$Passagiere.1..Kl. <- places
+    df$Passagiere.2..Kl. <- 0
+  }
+  if(class=="2"){
+    df$Passagiere.1..Kl. <- 0
+    df$Passagiere.2..Kl. <- places
+  }
+  df$Dossier.Status <- NA #added
+  df$Reisestart <- from
+  df$Reiseziel <- to
+  df$Business.Partner <- anbieter
+  df$Zug.Nr. <- trainno
+  df$Land <- land
+  #df <- formatData(df)
+  
+  #second order the reservations by date and take #reservations for res. date
+  
+  data <- subset(data, Reisedatum <= date)
+  data$pl <- data[[paste0("Passagiere.", class, "..Kl.")]]
+  numRes <- nrow(subset(data, Reisedatum==date & Dossier.Status=="Belegt" & Zug.Nr.==trainno & pl>0))
+  data <- data[,-which(names(data) %in% c("pl"))]
+  
+  #number of passengers for given day and class
+  print(subset(data, Reisedatum==date & Dossier.Status=="Belegt" & Zug.Nr.==trainno))
+  tPassagiere = sum(as.numeric(subset(data, Reisedatum==date & Dossier.Status=="Belegt" & Zug.Nr.==trainno)[[paste0("Passagiere.", class, "..Kl.")]]))
+  
+  print(paste("numRes =", numRes))
+  
+  data <- subset(data[1+numRes:nrow(data), ], Passagiere.2..Kl.<53-numRes & Passagiere.1..Kl.<53-numRes)
+
+#   print("before forest0, dim(data)")
+#   print(dim(data))
+  
+  #third compute probabilities
+  
+#   forest0 <- bigrfc(data, as.factor(data$Dossier.Status), ntree=30L, varselect=as.integer(c(1, 2, 3, 7, 8, 16, 17)), cachepath=NULL)
+#   prediction <- predict(forest0, data, as.factor(data$Dossier.Status))
+#   prediction <- cprob(prediction)[,2]
+#   predRes <- 100-prediction[1] #for the demanded prediction
+#   predictions <<- prediction[1+numRes] #for reservations on res. day
+  
+  data <- data[1:1000,]
+  data <- formatData(data)
+  numuni <- apply(data, 2, f <- function(x){length(unique(x))})
+  data <- data[, numuni<53]
+  
+  rf <- randomForest(Dossier.Status~., data=data)
+  print("head of rf$votes")
+  print(head(rf$votes))
+  pred <- c(round(100*rf$votes[,2]/(rf$votes[,1]+rf$votes[,2]), 2))
+  print("head of pred")
+  print(head(pred))
+  predRes <- pred[1] #for the demanded prediction
+  predictions <<- pred[2:2+numRes] #for reservations on res. day
+  
+  print(paste("length(predictions) =", length(predictions)))
+  print("predictions:")
+  print(predictions)
+  
+  # predPrior <- prediction[2+numRes:length(prediction)] #for reservations before res. day
+  tPlaces <- saison(date, 3, 10, trainno, class, F, "Gruppe") #total available places
+  print(paste("tPlaces=", tPlaces))
+  #res <- successWK(predRes, date, trainno, places, class, poss=tplaces) #success prediction
+  
+  #success probability
+  print(paste0("tPassagiere=", tPassagiere, ", places=", places, ", tPlaces", tPlaces))
+  mis <- tPassagiere+places-tPlaces #missing places
+  if(mis<=0) p <- 100
+  else{
+    data <- data[1:numRes+1,]
+    data$cumpl <- cumsum(data[[paste0("Passagiere.",class,"..Kl.")]])
+    ind <- min(which(data$cumpl>=mis))
+    if(ind==Inf) p <- 0
+    else{
+      p0 <- predictions/100
+      p0 <- prod(p0)
+      print(paste("predictions=", predictions, ", p0=", p0))
+      p0 <- 1-predictions/100+(100-predictions)/100*p0
+      p <- p0*100
+    }
+    p <- round(p, 2)
+  }
+  
+  return(list(pAusfall=predRes, pSuccess=p, totalPlaces=tPlaces, reservedPlaces=tPassagiere))
 }

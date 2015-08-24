@@ -39,43 +39,85 @@ setPlaces <- function(zugnr, jahr, saison, klasse1Einzel, klasse1gruppe, klasse1
   dbDisconnect(connexion)
 }
 
-getTrainNumbers <- function(){ #OK
+getTrainNumbers <- function(datres=""){ #OK
+  #datres: date reservation
+  datres <- as.character(datres)
+  print(paste("datres:", datres))
   connexion = dbConnect(MySQL(), host="localhost", port=3306, dbname="gdb", user="gaikan", password="gaikan123")
-  query <- "SELECT ZugNr FROM Trains;"
+  query <- "SELECT ZugNr FROM Trains"
+  if(!is.null(datres) & datres != ""){
+    
+    period <- getSaison(datres)
+    query <- paste0(query, " WHERE Jahr=", period$jahr, " AND Saison='", period$saison, "'")
+    print(paste("query:", query))
+  }
+  query <- paste0(query, ";")
   res <- dbGetQuery(connexion, query)
   dbDisconnect(connexion)
   return(unique(res$ZugNr))
 }
 
 saveData <- function(dataset){#TODO: test
-  library(bigrf)
-  library(doMC)
-  registerDoMC(cores=4)
+#   library(bigrf)
+#   library(doMC)
+#   registerDoMC(cores=4)
+  
+  print("arrivée dans saveData")
 
   connexion = dbConnect(MySQL(), host="localhost", port=3306, dbname="gdb", user="gaikan", password="gaikan123")
   minDate <- min(dataset$Reisedatum)
   maxDate <- max(dataset$Reisedatum)
+  
+  print(paste("minDate:", minDate, ", maxDate:", maxDate))
   #TODO: check query
   query <- paste0("SELECT COUNT(*) FROM Reservations WHERE Reisedatum >='", minDate, "' AND Reisedatum <= '", maxDate, "';")
   res <- dbSendQuery(connexion, query)
   anzahl <- dbFetch(res)
   anzahl <- as.numeric(anzahl)
+  print(paste("debug, anzahl =", anzahl))
   if(anzahl>=0){
     query <- paste0("DELETE FROM Reservations WHERE Reisedatum >='", minDate, "' AND Reisedatum <= '", maxDate, "';")
     dbSendQuery(connexion, query)
-    data <- subset(data, Reisedatum <= minDate | Reisedatum >=maxDate)
+    names(dataset) <- gsub("[:.:]", "", names(dataset))
+    dbWriteTable(connexion, "Reservations", dataset, append=T, row.names=F)
   }
   
-  #global assignments
-  data <<- rbind(data, dataset)
-  forest0 <<- bigrfc(data, as.factor(data$Dossier.Status), ntree=30L, varselect=as.integer(c(1, 2, 3, 7, 8, 16, 17)), cachepath=NULL)
-  predictions <- predict(forest0, data, as.factor(data$Dossier.Status))
-  predictions <<- cprob(predictions)
+  # data <- getData()
   
-  names(dataset) <- gsub("[:.:]", "", names(dataset))
+  print(paste0("nrow(data) before = ", nrow(data)))
+#   #local assignments
+#   data <- rbind(data, dataset)
+#   print(paste0("nrow(data) just after = ", nrow(data)))
+#   forest0 <- bigrfc(data, as.factor(data$Dossier.Status), ntree=30L, varselect=as.integer(c(1, 2, 3, 7, 8, 16, 17)), cachepath=NULL)
+  #global assignments
+
+  # data <- as.data.frame(rbind(data, dataset))
+  print(paste0("nrow(data) just after = ", nrow(data)))
+#   forest <- bigrfc(data, as.factor(data$Dossier.Status), ntree=30L, varselect=as.integer(c(1, 2, 3, 7, 8, 16, 17)), cachepath=NULL)
+#   print("fores0 calculated")
+  print(paste("nrow(data) even after =", nrow(data)))
+  print(head(as.factor(data$Dossier.Status)))
+  print(paste("length(data$Dossier.Status) even after =", length(data$Dossier.Status)))
+  print(head(data))
+
+#   forest0 <- bigrfc(data, as.factor(data$Dossier.Status), ntree=30L, varselect=as.integer(c(1, 2, 3, 7, 8, 16, 17)), cachepath=NULL)
+#   print("forest0")
+#   print(forest0)
+#   predictions <- predict(forest0, data, as.factor(data$Dossier.Status))
+#   #predictions <- predict(forest0, data, data$Dossier.Status)
+#   print("predictions calculated")
+#   predictions <- cprob(predictions)
+#   print("cprob calculated")
+  
+  # data <<- data
+#   forest0 <<- forest0
+#   predictions <<- predictions
+  
+  print(paste0("nrow(data) after = ", nrow(data)))
+  anz <- nrow(subset(dataset, Dossier.Status="Belegt"))
+  print(paste("Anzahl belegte Reservationen: ", anz))
   query <- paste0("INSERT IGNORE INTO Intervals(minDate, maxDate) VALUES('",minDate,"', '", maxDate, "');")
   dbSendQuery(connexion, query)
-  dbWriteTable(connexion, "Reservations", dataset, append=T, row.names=F)
   dbDisconnect(connexion)
 }
 
@@ -88,10 +130,15 @@ getIntervals <- function(){
   return(res)
 }
 
-getData <- function(datvon=NULL, datbis=NULL){
+getData <- function(datvon=NULL, datbis=NULL, trainnr=NULL, fromPlace=NULL, toPlace=NULL, einzel=NULL){
+  print(paste("getData, einzel=", einzel))
   connexion = dbConnect(MySQL(), host="localhost", port=3306, dbname="gdb", user="gaikan", password="gaikan123")
   query <- "SELECT * FROM Reservations"
   if(!(is.null(datvon) | is.null(datbis))) query <- paste0(query, " WHERE Reisedatum >= '", datvon, "' AND Reisedatum <= '", datbis, "'")
+  if(!is.null(trainnr) & trainnr!="" & trainnr!="Alle") query <- paste0(query, " AND ZugNr=", trainnr)
+  if(!is.null(fromPlace) & fromPlace!="") query <- paste0(query, " AND Reisestart='", fromPlace, "'")
+  if(!is.null(toPlace) & toPlace!="") query <- paste0(query, " AND Reiseziel='", toPlace, "'")
+  if(!is.null(einzel) & einzel!="" & einzel!="Alle") query <- paste0(query, " AND Einzel='", einzel, "'")
   query <- paste0(query, ";")
   print(query)
   data <- dbGetQuery(connexion, query)
@@ -108,10 +155,13 @@ getZugNr <- function(){
   data
 }
 
-getStations <- function(zugnr){
+getStations <- function(zugnr, richtung=""){
   if(!(is.null(zugnr) | zugnr=="")){
+    var <- "Reisestart, Reiseziel"
+    if(var=="von") var <- "Reisestart"
+    if(var=="bis") var <- "Reiseziel"
     connexion = dbConnect(MySQL(), host="localhost", port=3306, dbname="gdb", user="gaikan", password="gaikan123")
-    query <- "SELECT Reisestart, Reiseziel FROM Reservations"
+    query <- paste("SELECT", var, "FROM Reservations")
     if(zugnr!="Alle") query <- paste(query, "WHERE ZugNr=", zugnr)
     query <- paste0(query, ";")
     data <- dbGetQuery(connexion, query)
@@ -145,6 +195,19 @@ getYears <- function(){
   data <- dbGetQuery(connexion, query)
   dbDisconnect(connexion)
   return(data$Jahr)
+}
+
+getFactors <- function(var){
+  if(is.na(var) | is.null(var) | var=="") return("")
+  var <- gsub("[:.:]", "", var)
+  connexion = dbConnect(MySQL(), host="localhost", port=3306, dbname="gdb", user="gaikan", password="gaikan123")
+  query <- paste("SELECT DISTINCT", var, "FROM Reservations ORDER BY", var, "ASC;")
+  print("getFactors, query:")
+  print(query)
+  values <- dbGetQuery(connexion, query)
+  values <- c(values)
+  dbDisconnect(connexion)
+  return(values)
 }
 
 #falls alle 16 connections besetzt:
